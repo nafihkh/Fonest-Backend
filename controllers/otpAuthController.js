@@ -1,4 +1,5 @@
 const bcrypt = require("bcryptjs");
+const mongoose = require("mongoose");
 const User = require("../models/User");
 const Otp = require("../models/Otp");
 const RefreshSession = require("../models/RefreshSession");
@@ -12,6 +13,11 @@ const generateOtp = () => String(Math.floor(100000 + Math.random() * 900000));
 
 exports.sendOtp = async (req, res) => {
   const { contact } = req.body;
+
+  const isEmail = contact.includes("@");
+  const query = isEmail ? { email: contact } : { phone: contact };
+  const existing = await User.findOne(query).select("_id");
+  const isNewUser = !existing;
 
   await Otp.deleteOne({ contact, purpose: "login" });
 
@@ -27,15 +33,16 @@ exports.sendOtp = async (req, res) => {
 
   console.log("✅ OTP for", contact, "=>", otp);
 
-  res.json({ message: "OTP sent (check console)" });
+  res.json({ message: "OTP sent (check console)" , isNewUser});
 };
 
 exports.verifyOtpAndLogin = async (req, res) => {
   const { contact, otp, name } = req.body;
-
+  
+  if (!contact) return res.status(400).json({ message: "contact required" });
   const record = await Otp.findOne({ contact, purpose: "login" });
   if (!record) return res.status(400).json({ message: "OTP expired or not found" });
-
+  
   if (record.expiresAt.getTime() < Date.now()) {
     await Otp.deleteOne({ _id: record._id });
     return res.status(400).json({ message: "OTP expired" });
@@ -51,7 +58,12 @@ exports.verifyOtpAndLogin = async (req, res) => {
   let isNewUser = false;
 
   if (!user) {
-    let isNewUser = false;
+    isNewUser = true; 
+    
+    // ✅ set true for new user
+    if (!name || !name.trim()) {
+      return res.status(400).json({ message: "Name required for new user" });
+    }
     user = await User.create({
       ...query,
       name: name || "User",
@@ -61,7 +73,9 @@ exports.verifyOtpAndLogin = async (req, res) => {
       lastActive: new Date()
     });
   } else {
-    if (user.status === "suspended") return res.status(403).json({ message: "User suspended" });
+    if (user.status === "suspended") {
+      return res.status(403).json({ message: "User suspended" });
+    }
 
     user.isVerified = true;
     user.lastActive = new Date();
@@ -69,31 +83,33 @@ exports.verifyOtpAndLogin = async (req, res) => {
   }
 
   await Otp.deleteOne({ contact, purpose: "login" });
+
+  // ✅ tokens
   const accessToken = signAccessToken(user);
-  const refreshToken = signRefreshToken(user, session._id);
+
+  // ✅ refresh session (single write)
+  const sessionId = new mongoose.Types.ObjectId();
+  const refreshToken = signRefreshToken(user, sessionId);
   const tokenHash = await bcrypt.hash(refreshToken, 10);
 
-  const session = await RefreshSession.create({
+  await RefreshSession.create({
+    _id: sessionId,
     userId: user._id,
     deviceName: req.headers["x-device-name"] || "unknown",
-    ip: req.ip,
+    ip: req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.ip,
     userAgent: req.headers["user-agent"],
     tokenHash,
     isRevoked: false,
     lastUsedAt: new Date(),
-    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
+    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
   });
-
-  await session.save();
-
 
   res.cookie("refreshToken", refreshToken, getRefreshCookieOptions());
 
-
-  res.json({
+  return res.json({
     message: "Login success",
     accessToken,
-     isNewUser,
+    isNewUser,
     user: { id: user._id, name: user.name, role: user.role }
   });
 };

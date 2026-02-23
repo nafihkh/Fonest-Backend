@@ -5,20 +5,46 @@ const RefreshSession = require("../models/RefreshSession");
 const bcrypt = require("bcryptjs");
 const mongoose = require("mongoose");
 const { getRefreshCookieOptions } = require("../utils/cookies");
-
+const fetch = global.fetch || require("node-fetch");
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 exports.googleLogin = async (req, res) => {
-  const { idToken } = req.body;
-  if (!idToken) return res.status(400).json({ message: "idToken required" });
+  const { idToken, access_token } = req.body;
 
-  // ✅ verify token
-  const ticket = await client.verifyIdToken({
-    idToken,
-    audience: process.env.GOOGLE_CLIENT_ID
-  });
+  let payload;
 
-  const payload = ticket.getPayload();
+  // 1️⃣ If frontend sends ID token (GoogleLogin component)
+  if (idToken) {
+    const ticket = await client.verifyIdToken({
+      idToken,
+      audience: process.env.GOOGLE_CLIENT_ID
+    });
+    payload = ticket.getPayload();
+  }
+
+  // 2️⃣ If frontend sends access_token (useGoogleLogin custom button)
+  if (!payload && access_token) {
+    const response = await fetch(
+      "https://www.googleapis.com/oauth2/v3/userinfo",
+      {
+        headers: {
+          Authorization: `Bearer ${access_token}`
+        }
+      }
+    );
+
+    if (!response.ok) {
+      return res.status(400).json({ message: "Invalid Google access token" });
+    }
+
+    payload = await response.json();
+  }
+
+  if (!payload) {
+    return res.status(400).json({
+      message: "idToken or access_token required"
+    });
+  }
   const googleId = payload.sub;
   const email = payload.email;
   const name = payload.name || "User";
@@ -64,7 +90,7 @@ exports.googleLogin = async (req, res) => {
     _id: sessionId,
     userId: user._id,
     deviceName: req.headers["x-device-name"] || "unknown",
-    ip: req.ip,
+    ip: req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.ip,
     userAgent: req.headers["user-agent"],
     tokenHash,
     isRevoked: false,
