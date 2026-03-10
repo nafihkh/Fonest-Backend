@@ -1,24 +1,27 @@
 const Product = require("../models/Product");
 const { uploadBufferToCloudinary } = require("../utils/cloudinaryUpload");
 const { buildSku } = require("../utils/sku");
+const {
+  buildPagination,
+  buildSort,
+  buildSearch,
+  buildPaginationMeta,
+} = require("../utils/queryHelper");
 
 // OPTIONAL: replace with your real category/brand code logic
 async function getCategoryCode(categoryId) {
-  // Example: "MOB"
   return "MOB";
 }
 async function getBrandCode(brandId) {
-  // Example: "APL"
   return "APL";
 }
 
 async function nextSerial() {
-  // simple serial: count + 1 (ok for small scale; later use counter collection)
   const count = await Product.countDocuments();
   return count + 1;
 }
 
-// POST /api/products  (creates as draft by default)
+// POST /api/products
 exports.createProduct = async (req, res) => {
   try {
     const {
@@ -32,11 +35,10 @@ exports.createProduct = async (req, res) => {
       compareAtPrice,
       stock,
       lowStockThreshold,
-      status, // allow draft/active if you want (optional)
+      status,
       isFeatured,
     } = req.body;
 
-    // 1) upload images to cloudinary
     const files = req.files || [];
     const folder = process.env.CLOUDINARY_FOLDER || "fonest/products";
 
@@ -47,6 +49,7 @@ exports.createProduct = async (req, res) => {
         folder,
         resource_type: "image",
       });
+
       uploaded.push({
         url: result.secure_url,
         publicId: result.public_id,
@@ -55,13 +58,11 @@ exports.createProduct = async (req, res) => {
       });
     }
 
-    // 2) generate SKU
     const serial = await nextSerial();
     const categoryCode = await getCategoryCode(categoryId);
     const brandCode = await getBrandCode(brandId);
     const sku = buildSku({ categoryCode, brandCode, serial });
 
-    // 3) create product
     const product = await Product.create({
       categoryId,
       brandId,
@@ -73,32 +74,40 @@ exports.createProduct = async (req, res) => {
       costPrice: Number(costPrice || 0),
       compareAtPrice: Number(compareAtPrice || 0),
       stock: Number(stock || 0),
-      lowStockThreshold: Number(lowStockThreshold || 0),
-      status: status || "draft", // ✅ draft by default
-      isFeatured: Boolean(isFeatured),
+      lowStockThreshold: Number(lowStockThreshold || 10),
+      status: (status || "draft").toLowerCase(),
+      isFeatured: String(isFeatured) === "true" || isFeatured === true,
       images: uploaded,
-      createdBy: req.user?.id, // if you have auth
+      createdBy: req.user?.id,
       updatedBy: req.user?.id,
     });
 
     return res.status(201).json({ success: true, product });
   } catch (err) {
-    // handle duplicate SKU error
     if (err?.code === 11000) {
-      return res.status(409).json({ success: false, message: "SKU already exists. Try again." });
+      return res
+        .status(409)
+        .json({ success: false, message: "SKU already exists. Try again." });
     }
+
     console.error(err);
-    return res.status(500).json({ success: false, message: "Create product failed" });
+    return res
+      .status(500)
+      .json({ success: false, message: "Create product failed" });
   }
 };
 
-// PATCH /api/products/:id/publish  (draft -> active)
+// PATCH /api/products/:id/publish
 exports.publishProduct = async (req, res) => {
   try {
     const { id } = req.params;
 
     const product = await Product.findById(id);
-    if (!product) return res.status(404).json({ success: false, message: "Not found" });
+    if (!product) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Product not found" });
+    }
 
     product.status = "active";
     product.updatedBy = req.user?.id;
@@ -111,21 +120,182 @@ exports.publishProduct = async (req, res) => {
   }
 };
 
-// GET /api/products?status=draft|active
+// GET /api/products?search=&status=&page=&limit=&sortBy=&order=
 exports.listProducts = async (req, res) => {
   try {
-    const { status } = req.query;
+    const { search = "", status = "" } = req.query;
+    const { page, limit, skip } = buildPagination(req.query);
+    const sort = buildSort(req.query, ["createdAt", "name", "price", "stock", "status"]);
 
     const filter = {};
-    if (status) filter.status = status;
 
-    const products = await Product.find(filter)
-      .sort({ createdAt: -1 })
-      .select("name sku price stock status isFeatured slug images createdAt");
+    if (status?.trim()) {
+      filter.status = status.trim().toLowerCase();
+    }
 
-    return res.json({ success: true, products });
+    Object.assign(filter, buildSearch(search, ["name", "sku"]));
+
+    const [products, total] = await Promise.all([
+      Product.find(filter)
+        .sort(sort)
+        .skip(skip)
+        .limit(limit)
+        .populate("brandId", "name")
+        .populate("categoryId", "name")
+        .select("name sku price stock status isFeatured slug images brandId categoryId createdAt"),
+      Product.countDocuments(filter),
+    ]);
+
+    return res.json({
+      success: true,
+      products,
+      pagination: buildPaginationMeta(total, page, limit),
+    });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ success: false, message: "List failed" });
+  }
+};
+
+// GET /api/products/stats
+exports.productStats = async (req, res) => {
+  try {
+    const [totalProducts, activeProducts, draftProducts, outOfStock, lowStockItems] =
+      await Promise.all([
+        Product.countDocuments({}),
+        Product.countDocuments({ status: "active" }),
+        Product.countDocuments({ status: "draft" }),
+        Product.countDocuments({ stock: 0 }),
+        Product.countDocuments({ stock: { $gt: 0, $lte: 10 } }),
+      ]);
+
+    return res.json({
+      success: true,
+      stats: {
+        totalProducts,
+        activeProducts,
+        draftProducts,
+        outOfStock,
+        lowStockItems,
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    return res
+      .status(500)
+      .json({ success: false, message: "Failed to load product stats" });
+  }
+};
+
+// PATCH /api/products/bulk-action
+// body: { ids: [], action: "publish" | "archive" | "delete" }
+exports.bulkActionProducts = async (req, res) => {
+  try {
+    const { ids = [], action } = req.body;
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "No product ids provided",
+      });
+    }
+
+    if (!["publish", "archive", "delete"].includes(action)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid bulk action",
+      });
+    }
+
+    let result;
+
+    if (action === "publish") {
+      result = await Product.updateMany(
+        { _id: { $in: ids } },
+        {
+          $set: {
+            status: "active",
+            updatedBy: req.user?.id,
+          },
+        }
+      );
+    }
+
+    if (action === "archive") {
+      result = await Product.updateMany(
+        { _id: { $in: ids } },
+        {
+          $set: {
+            status: "archived",
+            updatedBy: req.user?.id,
+          },
+        }
+      );
+    }
+
+    if (action === "delete") {
+      result = await Product.deleteMany({ _id: { $in: ids } });
+    }
+
+    return res.json({
+      success: true,
+      message: `Bulk action "${action}" completed`,
+      result,
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: "Bulk action failed",
+    });
+  }
+};
+
+exports.searchProductSuggestions = async (req, res) => {
+  try {
+    const q = String(req.query.q || "").trim();
+
+    if (!q) {
+      return res.json({
+        success: true,
+        products: [],
+      });
+    }
+
+    const filter = {
+      $or: [
+        { name: { $regex: q, $options: "i" } },
+        { sku: { $regex: q, $options: "i" } },
+      ],
+      status: { $in: ["active", "draft", "inactive", "archived"] },
+    };
+
+    const products = await Product.find(filter)
+      .select("name sku stock status price images lowStockThreshold")
+      .sort({ createdAt: -1 })
+      .limit(8)
+      .lean();
+
+    const mapped = products.map((p) => ({
+      _id: p._id,
+      name: p.name,
+      sku: p.sku,
+      stock: Number(p.stock || 0),
+      status: p.status,
+      price: Number(p.price || 0),
+      image: p.images?.find((img) => img.isPrimary)?.url || p.images?.[0]?.url || "",
+      lowStockThreshold: Number(p.lowStockThreshold || 0),
+    }));
+
+    return res.json({
+      success: true,
+      products: mapped,
+    });
+  } catch (err) {
+    console.error("searchProductSuggestions error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to search products",
+    });
   }
 };

@@ -5,23 +5,10 @@ const product = require("../controllers/product.controller");
 // If you have auth middleware, add it:
 // const { verifyAccessToken } = require("../middleware/auth");
 
-router.post(
-  "/products",
-  /* verifyAccessToken, */
-  upload.array("images", 6),
-  product.createProduct
-);
-
-router.patch(
-  "/products/:id/publish",
-  /* verifyAccessToken, */
-  product.publishProduct
-);
-
-router.get(
-  "/products",
-  /* verifyAccessToken, */
-  product.listProducts
-);
-
+router.post("/products", upload.array("images", 6), product.createProduct);
+router.get("/products", product.listProducts);
+router.get("/products/stats", product.productStats);
+router.patch("/products/:id/publish", product.publishProduct);
+router.patch("/products/bulk-action", product.bulkActionProducts);
+router.get("/search-suggestions", product.searchProductSuggestions);
 module.exports = router;

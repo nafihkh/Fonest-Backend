@@ -30,8 +30,9 @@ const productSchema = new mongoose.Schema(
     costPrice: { type: Number, default: 0 },
     compareAtPrice: { type: Number, default: 0 },
 
-    stock: { type: Number, default: 0 },
-    lowStockThreshold: { type: Number, default: 0 },
+    stock: { type: Number, default: 0, min: 0, index: true },
+    lowStockThreshold: { type: Number, default: 10, min: 0 },
+    
 
     // ✅ Draft system here
     status: {
@@ -56,5 +57,8 @@ productSchema.pre("save", function () {
     this.slug = slugify(this.name, { lower: true, strict: true });
   }
 });
+productSchema.index({ stock: 1 });
+productSchema.index({ createdAt: -1 });
+productSchema.index({ name: 1 });
 
 module.exports = mongoose.model("Product", productSchema);

@@ -35,6 +35,8 @@ app.use(
 app.use("/auth", require("./routes/authRoutes"));
 app.use("/api", require("./routes/product.routes"));
 app.use("/api", require("./routes/catalog.routes"));
+app.use("/api", require("./routes/admin.users.routes.js"));
+app.use("/api/admin/stock", require("./routes/adminStockRoutes.js"));
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on http://localhost:${PORT}`);
