@@ -19,6 +19,10 @@ const userSchema = new mongoose.Schema(
     status: { type: String, enum: ["active", "suspended"], default: "active" },
 
     isVerified: { type: Boolean, default: false },
+    avatar: {
+      url: { type: String, default: "" },
+      publicId: { type: String, default: "" },
+    },
 
     lastActive: { type: Date, default: null },
 
