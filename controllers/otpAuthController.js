@@ -91,7 +91,7 @@ exports.verifyOtpAndLogin = async (req, res) => {
   const sessionId = new mongoose.Types.ObjectId();
   const refreshToken = signRefreshToken(user, sessionId);
   const tokenHash = await bcrypt.hash(refreshToken, 10);
-
+  
   await RefreshSession.create({
     _id: sessionId,
     userId: user._id,
