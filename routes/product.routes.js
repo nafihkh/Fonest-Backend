@@ -11,4 +11,5 @@ router.get("/products/stats", product.productStats);
 router.patch("/products/:id/publish", product.publishProduct);
 router.patch("/products/bulk-action", product.bulkActionProducts);
 router.get("/search-suggestions", product.searchProductSuggestions);
+router.patch("/low-stock-threshold", product.applyLowStockThresholdToAllProducts);
 module.exports = router;

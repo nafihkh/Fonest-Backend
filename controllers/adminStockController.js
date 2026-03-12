@@ -9,7 +9,11 @@ async function syncStockAlert(productId) {
   if (!product) return;
 
   const stock = Number(product.stock || 0);
-  const threshold = Number(product.lowStockThreshold || 0);
+  const threshold = Number(
+    product.lowStockThreshold !== undefined && product.lowStockThreshold !== null
+      ? product.lowStockThreshold
+      : 10
+  );
 
   await StockAlert.updateMany(
     { productId, isResolved: false },
@@ -32,7 +36,7 @@ async function syncStockAlert(productId) {
     return;
   }
 
-  if (stock <= threshold) {
+  if (stock > 0 && stock <= threshold) {
     await StockAlert.create({
       productId,
       alertType: "low_stock",
@@ -382,7 +386,11 @@ exports.stockStats = async (req, res) => {
 
     const lowStockItems = products.filter((p) => {
       const stock = Number(p.stock || 0);
-      const threshold = Number(p.lowStockThreshold || 0);
+      const threshold = Number(
+        p.lowStockThreshold !== undefined && p.lowStockThreshold !== null
+          ? p.lowStockThreshold
+          : 10
+      );
       return stock > 0 && stock <= threshold;
     }).length;
 
@@ -425,10 +433,23 @@ exports.stockStats = async (req, res) => {
 // GET /api/admin/stock/alerts
 exports.listStockAlerts = async (req, res) => {
   try {
-    const alerts = await StockAlert.find({ isResolved: false })
-      .populate("productId", "name sku stock lowStockThreshold")
-      .sort({ createdAt: -1 })
-      .lean();
+    const page = Math.max(Number(req.query.page) || 1, 1);
+    const limit = Math.max(Number(req.query.limit) || 4, 1);
+    const skip = (page - 1) * limit;
+
+    const filter = { isResolved: false };
+
+    const [alerts, total] = await Promise.all([
+      StockAlert.find(filter)
+        .populate("productId", "name sku stock lowStockThreshold images status")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .lean(),
+      StockAlert.countDocuments(filter),
+    ]);
+
+    const totalPages = Math.ceil(total / limit) || 1;
 
     const formatted = alerts.map((alert) => ({
       _id: alert._id,
@@ -443,6 +464,11 @@ exports.listStockAlerts = async (req, res) => {
             sku: alert.productId.sku,
             stock: alert.productId.stock,
             lowStockThreshold: alert.productId.lowStockThreshold,
+            status: alert.productId.status,
+            image:
+              alert.productId.images?.find((img) => img.isPrimary)?.url ||
+              alert.productId.images?.[0]?.url ||
+              "",
           }
         : null,
     }));
@@ -450,6 +476,13 @@ exports.listStockAlerts = async (req, res) => {
     return res.json({
       success: true,
       alerts: formatted,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages,
+        hasMore: page < totalPages,
+      },
     });
   } catch (err) {
     console.error("listStockAlerts error:", err);
@@ -844,6 +877,115 @@ exports.deleteStockHistory = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to delete stock history",
+    });
+  }
+};
+
+exports.getStockAlertDetails = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const alert = await StockAlert.findById(id)
+      .populate("productId", "name sku stock lowStockThreshold price status images")
+      .lean();
+
+    if (!alert) {
+      return res.status(404).json({
+        success: false,
+        message: "Alert not found",
+      });
+    }
+
+    return res.json({
+      success: true,
+      alert: {
+        _id: alert._id,
+        alertType: alert.alertType,
+        threshold: alert.threshold,
+        currentStock: alert.currentStock,
+        isResolved: alert.isResolved,
+        createdAt: alert.createdAt,
+        product: alert.productId
+          ? {
+              _id: alert.productId._id,
+              name: alert.productId.name,
+              sku: alert.productId.sku,
+              stock: alert.productId.stock,
+              lowStockThreshold: alert.productId.lowStockThreshold,
+              price: alert.productId.price,
+              status: alert.productId.status,
+              image:
+                alert.productId.images?.find((img) => img.isPrimary)?.url ||
+                alert.productId.images?.[0]?.url ||
+                "",
+            }
+          : null,
+      },
+    });
+  } catch (err) {
+    console.error("getStockAlertDetails error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to load alert details",
+    });
+  }
+};
+exports.rebuildStockAlerts = async (req, res) => {
+  try {
+    const products = await Product.find({})
+      .select("_id stock lowStockThreshold")
+      .lean();
+
+    await StockAlert.updateMany(
+      { isResolved: false },
+      {
+        $set: {
+          isResolved: true,
+          resolvedAt: new Date(),
+        },
+      }
+    );
+
+    let created = 0;
+
+    for (const product of products) {
+      const stock = Number(product.stock || 0);
+      const threshold = Number(
+        product.lowStockThreshold !== undefined && product.lowStockThreshold !== null
+          ? product.lowStockThreshold
+          : 10
+      );
+
+      if (stock === 0) {
+        await StockAlert.create({
+          productId: product._id,
+          alertType: "out_of_stock",
+          threshold,
+          currentStock: stock,
+          isResolved: false,
+        });
+        created++;
+      } else if (stock > 0 && stock <= threshold) {
+        await StockAlert.create({
+          productId: product._id,
+          alertType: "low_stock",
+          threshold,
+          currentStock: stock,
+          isResolved: false,
+        });
+        created++;
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: `Rebuilt ${created} stock alerts successfully`,
+    });
+  } catch (err) {
+    console.error("rebuildStockAlerts error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to rebuild stock alerts",
     });
   }
 };

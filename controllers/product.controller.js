@@ -74,7 +74,10 @@ exports.createProduct = async (req, res) => {
       costPrice: Number(costPrice || 0),
       compareAtPrice: Number(compareAtPrice || 0),
       stock: Number(stock || 0),
-      lowStockThreshold: Number(lowStockThreshold || 10),
+      lowStockThreshold:
+        lowStockThreshold !== undefined && lowStockThreshold !== ""
+          ? Number(lowStockThreshold)
+          : 10,
       status: (status || "draft").toLowerCase(),
       isFeatured: String(isFeatured) === "true" || isFeatured === true,
       images: uploaded,
@@ -160,14 +163,22 @@ exports.listProducts = async (req, res) => {
 // GET /api/products/stats
 exports.productStats = async (req, res) => {
   try {
-    const [totalProducts, activeProducts, draftProducts, outOfStock, lowStockItems] =
+    const [totalProducts, activeProducts, draftProducts, outOfStock, products] =
       await Promise.all([
         Product.countDocuments({}),
         Product.countDocuments({ status: "active" }),
         Product.countDocuments({ status: "draft" }),
         Product.countDocuments({ stock: 0 }),
-        Product.countDocuments({ stock: { $gt: 0, $lte: 10 } }),
+        Product.find({}).select("stock lowStockThreshold").lean(),
       ]);
+
+    const lowStockItems = products.filter((p) => {
+      const stock = Number(p.stock || 0);
+      const threshold = Number(
+        p.lowStockThreshold !== undefined ? p.lowStockThreshold : 10
+      );
+      return stock > 0 && stock <= threshold;
+    }).length;
 
     return res.json({
       success: true,
@@ -181,9 +192,10 @@ exports.productStats = async (req, res) => {
     });
   } catch (err) {
     console.error(err);
-    return res
-      .status(500)
-      .json({ success: false, message: "Failed to load product stats" });
+    return res.status(500).json({
+      success: false,
+      message: "Failed to load product stats",
+    });
   }
 };
 
@@ -296,6 +308,44 @@ exports.searchProductSuggestions = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to search products",
+    });
+  }
+};
+// PATCH /api/products/low-stock-threshold
+// body: { lowStockThreshold: 15 }
+exports.applyLowStockThresholdToAllProducts = async (req, res) => {
+  try {
+    const { lowStockThreshold } = req.body;
+
+    const threshold = Number(lowStockThreshold);
+
+    if (!Number.isFinite(threshold) || threshold < 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Low stock threshold must be 0 or greater",
+      });
+    }
+
+    const result = await Product.updateMany(
+      {},
+      {
+        $set: {
+          lowStockThreshold: threshold,
+          updatedBy: req.user?.id || req.user?._id || null,
+        },
+      }
+    );
+
+    return res.json({
+      success: true,
+      message: `Low stock threshold updated to ${threshold} for all products`,
+      result,
+    });
+  } catch (err) {
+    console.error("applyLowStockThresholdToAllProducts error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update low stock threshold",
     });
   }
 };

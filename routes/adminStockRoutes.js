@@ -11,6 +11,8 @@ const {
   listStockHistory,
   updateStockHistory,
   deleteStockHistory,
+  getStockAlertDetails,
+  rebuildStockAlerts,
 } = require("../controllers/adminStockController");
 
 
@@ -25,5 +27,8 @@ router.get("/alerts", listStockAlerts);
 router.get("/history", listStockHistory);
 router.patch("/history/:type/:id", updateStockHistory);
 router.delete("/history/:type/:id", deleteStockHistory);
+
+router.get("/alerts/:id", getStockAlertDetails);
+router.post("/alerts/rebuild", rebuildStockAlerts);
 
 module.exports = router;
