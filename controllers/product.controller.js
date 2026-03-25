@@ -1,6 +1,8 @@
 const Product = require("../models/Product");
 const { uploadBufferToCloudinary } = require("../utils/cloudinaryUpload");
 const { buildSku } = require("../utils/sku");
+const Brand = require("../models/Brand");
+const Category = require("../models/Category");
 const {
   buildPagination,
   buildSort,
@@ -349,3 +351,250 @@ exports.applyLowStockThresholdToAllProducts = async (req, res) => {
     });
   }
 };
+// GET /api/store/products
+exports.listStoreProducts = async (req, res) => {
+  try {
+    const {
+      search = "",
+      featured = "",
+      category = "",
+      brand = "",
+      minPrice = "",
+      maxPrice = "",
+      sortBy = "createdAt",
+      order = "desc",
+      page = 1,
+      limit = 12,
+    } = req.query;
+
+    const filter = {
+      status: "active",
+      stock: { $gt: 0 },
+    };
+
+    if (featured === "true") {
+      filter.isFeatured = true;
+    }
+
+    if (category.trim()) {
+      filter.categoryId = category;
+    }
+
+    if (brand.trim()) {
+      filter.brandId = brand;
+    }
+
+    if (search.trim()) {
+      Object.assign(filter, buildSearch(search, ["name", "sku"]));
+    }
+
+    if (minPrice !== "" || maxPrice !== "") {
+      filter.price = {};
+      if (minPrice !== "") filter.price.$gte = Number(minPrice);
+      if (maxPrice !== "") filter.price.$lte = Number(maxPrice);
+    }
+
+    const allowedSort = ["createdAt", "name", "price"];
+    const finalSortBy = allowedSort.includes(sortBy) ? sortBy : "createdAt";
+    const finalOrder = order === "asc" ? 1 : -1;
+
+    const pageNum = Math.max(Number(page) || 1, 1);
+    const limitNum = Math.max(Number(limit) || 12, 1);
+    const skip = (pageNum - 1) * limitNum;
+
+    const [products, total] = await Promise.all([
+      Product.find(filter)
+        .sort({ [finalSortBy]: finalOrder })
+        .skip(skip)
+        .limit(limitNum)
+        .populate("brandId", "name")
+        .populate("categoryId", "name")
+        .select(
+          "name slug sku price compareAtPrice stock isFeatured images brandId categoryId createdAt"
+        )
+        .lean(),
+      Product.countDocuments(filter),
+    ]);
+
+    const mapped = products.map((p) => ({
+      _id: p._id,
+      name: p.name,
+      slug: p.slug,
+      sku: p.sku,
+      price: Number(p.price || 0),
+      compareAtPrice: Number(p.compareAtPrice || 0),
+      stock: Number(p.stock || 0),
+      isFeatured: !!p.isFeatured,
+      brand: p.brandId?.name || "",
+      brandId: p.brandId?._id || "",
+      category: p.categoryId?.name || "",
+      categoryId: p.categoryId?._id || "",
+      image:
+        p.images?.find((img) => img.isPrimary)?.url ||
+        p.images?.[0]?.url ||
+        "",
+    }));
+
+    return res.json({
+      success: true,
+      products: mapped,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        totalPages: Math.ceil(total / limitNum),
+      },
+    });
+  } catch (err) {
+    console.error("listStoreProducts error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to load store products",
+    });
+  }
+};
+
+// GET /api/store/products/:id
+exports.getStoreProductById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const product = await Product.findOne({
+      _id: id,
+      status: "active",
+    })
+      .populate("brandId", "name")
+      .populate("categoryId", "name")
+      .lean();
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
+    }
+
+    return res.json({
+      success: true,
+      product: {
+        _id: product._id,
+        name: product.name,
+        description: product.description,
+        sku: product.sku,
+        slug: product.slug,
+        price: Number(product.price || 0),
+        compareAtPrice: Number(product.compareAtPrice || 0),
+        stock: Number(product.stock || 0),
+        isFeatured: !!product.isFeatured,
+        brand: product.brandId?.name || "",
+        category: product.categoryId?.name || "",
+        images: (product.images || []).map((img) => ({
+          url: img.url,
+          isPrimary: !!img.isPrimary,
+          sortOrder: img.sortOrder || 0,
+        })),
+      },
+    });
+  } catch (err) {
+    console.error("getStoreProductById error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to load product",
+    });
+  }
+};
+// GET /api/store/featured-products
+exports.listFeaturedProducts = async (req, res) => {
+  try {
+    const products = await Product.find({
+      status: "active",
+      stock: { $gt: 0 },
+      isFeatured: true,
+    })
+      .sort({ createdAt: -1 })
+      .limit(8)
+      .populate("brandId", "name")
+      .populate("categoryId", "name")
+      .select(
+        "name slug sku price compareAtPrice stock isFeatured images brandId categoryId createdAt"
+      )
+      .lean();
+
+    const mapped = products.map((p) => ({
+      _id: p._id,
+      name: p.name,
+      slug: p.slug,
+      sku: p.sku,
+      price: Number(p.price || 0),
+      compareAtPrice: Number(p.compareAtPrice || 0),
+      stock: Number(p.stock || 0),
+      isFeatured: !!p.isFeatured,
+      brand: p.brandId?.name || "",
+      category: p.categoryId?.name || "",
+      image:
+        p.images?.find((img) => img.isPrimary)?.url ||
+        p.images?.[0]?.url ||
+        "",
+    }));
+
+    return res.json({
+      success: true,
+      products: mapped,
+    });
+  } catch (err) {
+    console.error("listFeaturedProducts error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to load featured products",
+    });
+  }
+};
+// DELETE /api/products/:id
+exports.deleteProduct = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const product = await Product.findById(id);
+
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
+    }
+
+    await Product.deleteOne({ _id: id });
+
+    return res.json({
+      success: true,
+      message: "Product deleted successfully",
+    });
+  } catch (err) {
+    console.error("deleteProduct error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Delete product failed",
+    });
+  }
+};
+
+exports.getStoreFilters = async (req, res) => {
+  try {
+    const [brands, categories] = await Promise.all([
+      Brand.find({}).select("_id name").sort({ name: 1 }).lean(),
+      Category.find({}).select("_id name").sort({ name: 1 }).lean(),
+    ]);
+
+    return res.json({
+      success: true,
+      brands,
+      categories,
+    });
+  } catch (err) {
+    console.error("getStoreFilters error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to load filters",
+    });
+  }
+}
