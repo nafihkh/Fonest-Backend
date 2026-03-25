@@ -14,17 +14,17 @@ const {
 const upload = multer({ storage: multer.memoryStorage() });
 
 
-router.get("/users", usrctrl.listUsers);
-router.get("/users/stats", usrctrl.userStats);
+router.get("/users", auth(["admin"]), usrctrl.listUsers);
+router.get("/users/stats", auth(["admin"]), usrctrl.userStats);
 
 // optional generic status update
-router.patch("/users/:id/status", usrctrl.updateUserStatus);
+router.patch("/users/:id/status", auth(["admin"]), usrctrl.updateUserStatus);
 
 // direct actions
-router.patch("/users/:id/block", usrctrl.blockUser);
-router.patch("/users/:id/unblock", usrctrl.unblockUser);
+router.patch("/users/:id/block", auth(["admin"]), usrctrl.blockUser);
+router.patch("/users/:id/unblock", auth(["admin"]), usrctrl.unblockUser);
 
-router.delete("/users/:id", usrctrl.deleteUser);
+router.delete("/users/:id", auth(["admin"]), usrctrl.deleteUser);
 
 router.get("/settings", auth(["admin"]), getMySettings);
 router.patch("/settings/profile",auth(["admin"]), updateProfileSettings);

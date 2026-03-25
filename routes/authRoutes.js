@@ -9,6 +9,6 @@ router.post("/otp/send", validate(authValid.sendOtpSchema), otpAuthctrl.sendOtp)
 router.post("/otp/verify", validate(authValid.verifyOtpSchema), otpAuthctrl.verifyOtpAndLogin);
 router.post("/google", google.googleLogin);
 router.post("/refresh", sessionAuthCtrl.refreshAccessToken);
-router.post("/logout", sessionAuthCtrl.logout);
+router.post("/logout",  sessionAuthCtrl.logout);
 
 module.exports = router;

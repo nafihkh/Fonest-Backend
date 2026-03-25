@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-
+const auth = require("../middleware/auth");
 const {
   listReturns,
   returnStats,
@@ -15,12 +15,12 @@ const {
 // const { requireAdmin } = require("../middlewares/roleMiddleware");
 // router.use(protect, requireAdmin);
 
-router.get("/", listReturns);
-router.get("/stats", returnStats);
-router.get("/:id", getReturnDetails);
+router.get("/", auth(["admin"]), listReturns);
+router.get("/stats", auth(["admin"]), returnStats);
+router.get("/:id", auth(["admin"]), getReturnDetails);
 
-router.patch("/:id/approve", approveReturn);
-router.patch("/:id/reject", rejectReturn);
-router.patch("/:id/receive", receiveReturn);
+router.patch("/:id/approve", auth(["admin"]), approveReturn);
+router.patch("/:id/reject", auth(["admin"]), rejectReturn);
+router.patch("/:id/receive", auth(["admin"]), receiveReturn);
 
 module.exports = router;
