@@ -40,6 +40,8 @@ app.use("/api/cart", require("./routes/cartRoutes.js"));
 app.use("/api/admin/stock", require("./routes/adminStockRoutes.js"));
 app.use("/api" , require("./routes/paymentRouter.js"))
 app.use("/api" , require("./routes/order.roter.js"))
+app.use("/api" , require("./routes/profileRouter.js"))
+
 
 // app.use("/api/admin/returns", require("./routes/adminReturnRoutes.js"));
 

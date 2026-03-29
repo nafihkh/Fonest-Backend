@@ -30,7 +30,7 @@ const productSchema = new mongoose.Schema(
     costPrice: { type: Number, default: 0 },
     compareAtPrice: { type: Number, default: 0 },
 
-    stock: { type: Number, default: 0, min: 0, index: true },
+    stock: { type: Number, default: 0, min: 0 },
     lowStockThreshold: { type: Number, default: 10, min: 0 },
     
 
