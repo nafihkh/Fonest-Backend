@@ -17,5 +17,15 @@ router.post(
   auth(["customer"]),
   checkout.verifyRazorpayPayment
 );
+router.post(
+  "/checkout/create-cart-razorpay-order",
+  auth(["customer"]),
+  checkout.createCartRazorpayOrder );
+
+  router.post(
+  "/checkout/verify-cart-razorpay-payment",
+  auth(["customer"]),
+  checkout.verifyCartRazorpayPayment
+);
 
 module.exports = router;
