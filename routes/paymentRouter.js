@@ -27,5 +27,6 @@ router.post(
   auth(["customer"]),
   checkout.verifyCartRazorpayPayment
 );
+router.post("/checkout/apply-cart-coupon", auth(["customer"]), checkout.applyCartCoupon);
 
 module.exports = router;
