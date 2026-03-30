@@ -29,7 +29,6 @@ function buildCartSummary(cart) {
 exports.getCart = async (req, res) => {
   try {
     const userId = req.user?.id;
-    console.log("ADD req.user:", req.user);
 
     if (!userId) {
       return res.status(401).json({
@@ -55,8 +54,6 @@ exports.getCart = async (req, res) => {
     }
 
     const summary = buildCartSummary(cart);
-    console.log("Cart", cart);
-
     return res.json({
       success: true,
       message: "Cart fetched successfully",

@@ -698,6 +698,12 @@ exports.verifyCartRazorpayPayment = async (req, res) => {
         message: "Missing payment verification fields",
       });
     }
+    console.log("userid",userId)
+    console.log("req.body",razorpay_order_id,
+      razorpay_payment_id,
+      razorpay_signature,
+      couponCode,
+      addressId)
 
     const generatedSignature = crypto
       .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
@@ -723,6 +729,7 @@ exports.verifyCartRazorpayPayment = async (req, res) => {
         message: "Cart is empty",
       });
     }
+    console.log(cart)
 
     const address = await UserAddress.findOne({
       _id: addressId,
@@ -897,7 +904,6 @@ exports.verifyCartRazorpayPayment = async (req, res) => {
     await cart.save({ session });
 
     await session.commitTransaction();
-
     return res.json({
       success: true,
       message: "Order placed successfully",
@@ -913,5 +919,118 @@ exports.verifyCartRazorpayPayment = async (req, res) => {
     });
   } finally {
     session.endSession();
+  }
+};
+
+exports.applyCartCoupon = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { couponCode } = req.body;
+
+    const cart = await Cart.findOne({ user: userId }).populate("items.product");
+
+    if (!cart || !cart.items.length) {
+      return res.status(400).json({
+        success: false,
+        message: "Cart is empty",
+      });
+    }
+
+    let subtotal = 0;
+
+    for (const item of cart.items) {
+      subtotal += Number(item.product?.price || 0) * Number(item.quantity || 0);
+    }
+
+    const deliveryCharge = 0;
+
+    if (!couponCode?.trim()) {
+      return res.json({
+        success: true,
+        pricing: {
+          subtotal,
+          couponDiscount: 0,
+          deliveryCharge,
+          finalAmount: subtotal + deliveryCharge,
+        },
+        coupon: null,
+        message: "No coupon applied",
+      });
+    }
+
+    const code = couponCode.trim().toUpperCase();
+    const coupon = await Coupon.findOne({ code });
+
+    if (!coupon) {
+      return res.status(404).json({
+        success: false,
+        message: "Invalid coupon code",
+      });
+    }
+
+    if (!coupon.isActive) {
+      return res.status(400).json({
+        success: false,
+        message: "Coupon is inactive",
+      });
+    }
+
+    if (coupon.expiresAt && new Date(coupon.expiresAt) < new Date()) {
+      return res.status(400).json({
+        success: false,
+        message: "Coupon has expired",
+      });
+    }
+
+    if (coupon.usageLimit > 0 && coupon.usedCount >= coupon.usageLimit) {
+      return res.status(400).json({
+        success: false,
+        message: "Coupon usage limit reached",
+      });
+    }
+
+    if (subtotal < coupon.minOrderValue) {
+      return res.status(400).json({
+        success: false,
+        message: `Minimum order value is ₹${coupon.minOrderValue}`,
+      });
+    }
+
+    let couponDiscount = 0;
+
+    if (coupon.type === "flat") {
+      couponDiscount = coupon.value;
+    } else if (coupon.type === "percent") {
+      couponDiscount = (subtotal * coupon.value) / 100;
+
+      if (coupon.maxDiscount > 0) {
+        couponDiscount = Math.min(couponDiscount, coupon.maxDiscount);
+      }
+    }
+
+    couponDiscount = Math.min(couponDiscount, subtotal);
+
+    const finalAmount = Math.max(subtotal - couponDiscount + deliveryCharge, 0);
+
+    return res.json({
+      success: true,
+      pricing: {
+        subtotal,
+        couponDiscount,
+        deliveryCharge,
+        finalAmount,
+      },
+      coupon: {
+        code: coupon.code,
+        type: coupon.type,
+        value: coupon.value,
+      },
+      message: "Coupon applied successfully",
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to apply coupon",
+    });
   }
 };
