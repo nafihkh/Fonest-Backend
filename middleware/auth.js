@@ -5,7 +5,6 @@ function auth(allowedRoles = []) {
   return async (req, res, next) => {
     try {
       let token = null;
-        console.log("auth header:", req.headers.authorization);
       // 1) Read Bearer token from Authorization header
       if (req.headers.authorization?.startsWith("Bearer ")) {
         token = req.headers.authorization.split(" ")[1];
