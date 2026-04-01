@@ -2,7 +2,6 @@ const mongoose = require("mongoose");
 const Return = require("../models/Return");
 const ReturnItem = require("../models/ReturnItem");
 const Order = require("../models/Order");
-const OrderItem = require("../models/OrderItem");
 const Product = require("../models/Product");
 
 const ALLOWED_RETURN_STATUS = [

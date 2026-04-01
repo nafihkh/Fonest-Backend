@@ -2,9 +2,11 @@ const bcrypt = require("bcryptjs");
 const mongoose = require("mongoose");
 const User = require("../models/User");
 const Otp = require("../models/Otp");
+const OtpRateLimit = require("../models/OtpRateLimit");
 const RefreshSession = require("../models/RefreshSession");
 const { signAccessToken, signRefreshToken } = require("../utils/jwt");
 const { getRefreshCookieOptions } = require("../utils/cookies");
+const { sendMessage } = require("../services/otpService");
 
 /**
  * 6-digit OTP
@@ -18,6 +20,20 @@ exports.sendOtp = async (req, res) => {
   const query = isEmail ? { email: contact } : { phone: contact };
   const existing = await User.findOne(query).select("_id");
   const isNewUser = !existing;
+
+  // Rate Limiting check (max 5 OTPs per day per contact)
+  const today = new Date().toISOString().split('T')[0]; 
+  let rateLimit = await OtpRateLimit.findOne({ contact, date: today });
+
+  if (rateLimit) {
+    if (rateLimit.count >= 5) {
+      return res.status(429).json({ message: "Daily OTP limit reached (5 requests/day). Please try again tomorrow." });
+    }
+    rateLimit.count += 1;
+    await rateLimit.save();
+  } else {
+    await OtpRateLimit.create({ contact, date: today, count: 1 });
+  }
 
   await Otp.deleteOne({ contact, purpose: "login" });
 
@@ -33,7 +49,14 @@ exports.sendOtp = async (req, res) => {
 
   console.log("✅ OTP for", contact, "=>", otp);
 
-  res.json({ message: "OTP sent (check console)" , isNewUser});
+  try {
+    const message = `Your FONEST login OTP is: ${otp}. It is valid for 5 minutes. Please do not share this code.`;
+    await sendMessage(contact, message, "FONEST Login OTP");
+    res.json({ message: "OTP sent successfully", isNewUser });
+  } catch (error) {
+    console.error("Failed to send OTP:", error);
+    res.status(500).json({ message: "Failed to send OTP", error: error.message });
+  }
 };
 
 exports.verifyOtpAndLogin = async (req, res) => {
