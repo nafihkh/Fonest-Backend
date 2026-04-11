@@ -15,8 +15,8 @@ app.use(express.json());
 app.use(cookieParser());
 
 const allowedOrigins = [
-  process.env.CLIENT_URL,          // e.g. http://localhost:5173
-  process.env.CLIENT_URL_LAN,      // e.g. http://192.168.1.15:5173
+  process.env.CLIENT_URL,          
+  process.env.CLIENT_URL_LAN,      
 ].filter(Boolean);
 app.set("trust proxy", 1);//ip prottection
 app.use(
@@ -32,7 +32,7 @@ app.use(
 );
 
 
-app.use("/auth", require("./routes/authRoutes"));
+app.use("/api/auth", require("./routes/authRoutes"));
 app.use("/api", require("./routes/product.routes"));
 app.use("/api", require("./routes/catalog.routes"));
 app.use("/api", require("./routes/admin.users.routes.js"));
@@ -40,6 +40,7 @@ app.use("/api/cart", require("./routes/cartRoutes.js"));
 app.use("/api/admin/stock", require("./routes/adminStockRoutes.js"));
 app.use("/api" , require("./routes/paymentRouter.js"))
 app.use("/api" , require("./routes/order.router.js"))
+app.use("/api" , require("./routes/return.router.js"))
 app.use("/api" , require("./routes/profileRouter.js"))
 
 

@@ -19,7 +19,7 @@ function buildPaginationMeta({ total, page, limit }) {
 
 exports.getMyOrders = async (req, res) => {
   try {
-    const { status, search = "" } = req.query;
+    const { status, search = "", month, year } = req.query;
     const { page, limit, skip } = buildPagination(req.query);
 
     const filter = {
@@ -32,6 +32,21 @@ exports.getMyOrders = async (req, res) => {
 
     if (search.trim()) {
       filter["items.name"] = { $regex: search.trim(), $options: "i" };
+    }
+
+    // Month + year filter on createdAt
+    const parsedYear = parseInt(year, 10);
+    const parsedMonth = parseInt(month, 10); // 1-based (1 = Jan, 12 = Dec)
+
+    if (!isNaN(parsedYear) && !isNaN(parsedMonth) && parsedMonth >= 1 && parsedMonth <= 12) {
+      const startDate = new Date(parsedYear, parsedMonth - 1, 1);
+      const endDate = new Date(parsedYear, parsedMonth, 1); // exclusive start of next month
+      filter.createdAt = { $gte: startDate, $lt: endDate };
+    } else if (!isNaN(parsedYear)) {
+      // Year-only filter
+      const startDate = new Date(parsedYear, 0, 1);
+      const endDate = new Date(parsedYear + 1, 0, 1);
+      filter.createdAt = { $gte: startDate, $lt: endDate };
     }
 
     const [orders, total] = await Promise.all([
@@ -56,6 +71,8 @@ exports.getMyOrders = async (req, res) => {
   }
 };
 
+const Return = require("../models/Return");
+
 exports.getOrderById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -79,9 +96,14 @@ exports.getOrderById = async (req, res) => {
       });
     }
 
+    const returnInfo = await Return.findOne({ orderId: id, userId: req.user.id }).lean();
+
     return res.json({
       success: true,
-      order,
+      order: {
+        ...order,
+        returnInfo: returnInfo || null,
+      },
     });
   } catch (error) {
     return res.status(500).json({

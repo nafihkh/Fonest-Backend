@@ -36,6 +36,11 @@ const userSettingsSchema = new mongoose.Schema(
         default: "private",
       },
     },
+
+    pushSubscriptions: {
+      type: Array,
+      default: []
+    }
   },
   { timestamps: true }
 );
